@@ -23,17 +23,31 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
-          pip install podman-compose
+          pip install --no-cache-dir podman-compose
           podman --version
 
-      # 3️⃣ Configure Podman storage
-      - name: Configure Podman storage
+      # 3️⃣ Configure Podman storage & temp (CRITICAL FIX)
+      - name: Configure Podman storage (fix disk space)
         run: |
-          STORAGE_ROOT="/home/runner/work/_containers"
-          sudo mkdir -p $STORAGE_ROOT /etc/containers
+          STORAGE_ROOT="${GITHUB_WORKSPACE}/containers"
+          RUN_ROOT="${GITHUB_WORKSPACE}/runroot"
+          TMP_ROOT="${GITHUB_WORKSPACE}/tmp"
 
-          echo "[storage]" | sudo tee /etc/containers/storage.conf
-          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
+          mkdir -p $STORAGE_ROOT $RUN_ROOT $TMP_ROOT
+          sudo mkdir -p /etc/containers
+
+          cat <<EOF | sudo tee /etc/containers/storage.conf
+          [storage]
+          driver = "overlay"
+          graphroot = "$STORAGE_ROOT"
+          runroot = "$RUN_ROOT"
+          EOF
+
+          echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
+          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
+          echo "HF_HOME=$TMP_ROOT/huggingface" >> $GITHUB_ENV
+          echo "TRANSFORMERS_CACHE=$TMP_ROOT/huggingface/transformers" >> $GITHUB_ENV
+          echo "BUILDAH_FORMAT=docker" >> $GITHUB_ENV
 
           podman system migrate
 
@@ -56,6 +70,11 @@ jobs:
           podman-compose up -d
           podman ps
 
+      # 🔥 Free space immediately
+      - name: Prune after Demo-1
+        run: |
+          podman system prune -af --volumes
+
       # ===============================
       # 🚀 DEMO 2 – OTEL CORE STACK
       # ===============================
@@ -67,9 +86,9 @@ jobs:
           podman-compose -f docker-compose.yml up -d
           podman ps
 
-      
+      # ===============================
       # 🚀 DEMO 2 – PERSISTENCE STACK
-
+      # ===============================
       - name: Run Demo-2 (Persistence)
         working-directory: demo/demo-2-otel
         run: |
@@ -80,6 +99,7 @@ jobs:
       # 8️⃣ Verify
       - name: Verify Podman Environment
         run: |
+          podman system df
           podman network ls
           podman ps -a
 
@@ -104,4 +124,5 @@ jobs:
           cd ../demo-1-basics
           podman-compose down || true
 
+          podman system prune -af --volumes || true
           echo "Cleanup completed."
