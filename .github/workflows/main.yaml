@@ -1,10 +1,15 @@
-name: Run Podman Compose (Sequential)
+name: Run Podman Compose (Folder-based)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+    paths:
+      - 'demo/**'
+      - '!README.md'
+      - '!**/README.md'
   pull_request:
+    paths:
+      - 'demo/**'
     paths-ignore:
       - README.md
       - '**/README.md'
@@ -18,16 +23,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Install Podman & podman-compose
+      # 2️⃣ Detect changed folders
+      - name: Detect changed demo folders
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            demo1:
+              - 'demo/demo-1-basics/**'
+            demo2:
+              - 'demo/demo-2-otel/**'
+
+      # 3️⃣ Install Podman (only if needed)
       - name: Install Podman
+        if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
           pip install --no-cache-dir podman-compose
           podman --version
 
-      # 3️⃣ Configure Podman storage & temp (CRITICAL FIX)
-      - name: Configure Podman storage (fix disk space)
+      # 4️⃣ Configure Podman storage & temp (CRITICAL FIX)
+      - name: Configure Podman storage
+        if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
           STORAGE_ROOT="${GITHUB_WORKSPACE}/containers"
           RUN_ROOT="${GITHUB_WORKSPACE}/runroot"
@@ -51,78 +69,50 @@ jobs:
 
           podman system migrate
 
-      # 4️⃣ Ensure Podman network
+      # 5️⃣ Ensure Podman network
       - name: Ensure Podman network
+        if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
-          NETWORK_NAME="edge-network"
-          if ! podman network exists "$NETWORK_NAME"; then
-            podman network create "$NETWORK_NAME"
-          fi
+          podman network exists edge-network || podman network create edge-network
 
       # ===============================
-      # 🚀 DEMO 1 – BASIC STACK
+      # 🚀 DEMO-1 – BASIC STACK
       # ===============================
-      - name: Build & Run Demo-1 (Basics)
+      - name: Build & Run Demo-1
+        if: steps.changes.outputs.demo1 == 'true'
         working-directory: demo/demo-1-basics
         run: |
-          echo "Running Demo-1 Basics..."
+          echo "Running Demo-1..."
           podman-compose build
           podman-compose up -d
           podman ps
 
-      # 🔥 Free space immediately
       - name: Prune after Demo-1
-        run: |
-          podman system prune -af --volumes
+        if: steps.changes.outputs.demo1 == 'true'
+        run: podman system prune -af --volumes
 
       # ===============================
-      # 🚀 DEMO 2 – OTEL CORE STACK
+      # 🚀 DEMO-2 – OTEL CORE
       # ===============================
-      - name: Build & Run Demo-2 (OTEL Core)
+      - name: Build & Run Demo-2 (Core)
+        if: steps.changes.outputs.demo2 == 'true'
         working-directory: demo/demo-2-otel
         run: |
-          echo "Running Demo-2 OTEL Core..."
+          echo "Running Demo-2 Core..."
           podman-compose -f docker-compose.yml build
           podman-compose -f docker-compose.yml up -d
-          podman ps
 
       # ===============================
-      # 🚀 DEMO 2 – PERSISTENCE STACK
+      # 🚀 DEMO-2 – PERSISTENCE
       # ===============================
       - name: Run Demo-2 (Persistence)
+        if: steps.changes.outputs.demo2 == 'true'
         working-directory: demo/demo-2-otel
         run: |
-          echo "Running Persistence stack..."
           podman-compose -f docker-compose-persistance.yml up -d
-          podman ps
-
-      # 8️⃣ Verify
-      - name: Verify Podman Environment
-        run: |
-          podman system df
-          podman network ls
-          podman ps -a
-
-      # 9️⃣ Logs
-      - name: Show Container Logs
-        run: |
-          for c in $(podman ps --format "{{.Names}}"); do
-            echo "----------------------------"
-            echo "Logs for: $c"
-            echo "----------------------------"
-            podman logs "$c" || true
-          done
 
       # 🔟 Cleanup (Always)
       - name: Cleanup
         if: always()
         run: |
-          cd demo/demo-2-otel
-          podman-compose -f docker-compose-persistance.yml down || true
-          podman-compose -f docker-compose.yml down || true
-
-          cd ../demo-1-basics
-          podman-compose down || true
-
           podman system prune -af --volumes || true
-          echo "Cleanup completed."
