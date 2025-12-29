@@ -1,69 +1,124 @@
-version: "3.9"
+name: Run Podman Compose (Folder-based)
 
-services:
-  
-  redis:
-    image: redis:7-alpine
-    container_name: anomaly-redis
-    ports:
-      - "6379:6379"
-    
-    networks:
-        - anomaly-network
-  anomaly-db:
-    image: quay.io/osclimate/postgresql-13:1-101
-    container_name: anomaly-db
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRESQL_ADMIN_PASSWORD=admin123$
-      - POSTGRESQL_DATABASE=anomaly-db
-      - POSTGRESQL_PASSWORD=anomaly123$
-      - POSTGRESQL_USER=anomaly
-    networks:
-      - anomaly-network
-  llm-faiss:
-    build: ./anomaly-llm-faiss
-    container_name: llm-faiss
-    ports:
-      - "8002:8002"
-    # command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --workers 2
-    environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - ACTION_REQ=N
-      - LLM_INFERENCE_QUEUE=llm_inference_queue
-    depends_on:
-      - redis
-    networks:
-      - anomaly-network
+on:
+  # ✅ Manual trigger (run anytime, no code changes needed)
+  workflow_dispatch:
 
-  anomaly-detection:
-    build:
-      context: ./anomaly_isolation_forest
-      dockerfile: Dockerfile
-    container_name: anomaly-detection
-    ports:
-      - "8001:8001"
-    environment:
-      - PYTHONPATH=/app
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - PROCESS_ANOMALY_URL=http://llm-faiss:8002/process-anomaly
-      - REDIS_OBS_HOST=redis
-      - REDIS_OBS_PORT=6379
-      - DATABASE_URL=postgresql://anomaly:anomaly123$@anomaly-db:5432/anomaly-db
-    # volumes:
-    #   - ${PWD}/anomaly_isolation_forest:/app
-    depends_on:
-      - redis
-      - llm-faiss
-    # command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2
-    networks:
-      - anomaly-network
+  # ✅ Auto trigger only when demo folder changes
+  push:
+    branches: [ main ]
+    paths:
+      - 'demo/**'
 
+  pull_request:
+    paths:
+      - 'demo/**'
 
-networks:
-  anomaly-network:
-    external: true
+jobs:
+  podman-compose:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2️⃣ Detect which demo changed
+      - name: Detect changed demo folders
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            demo1:
+              - 'demo/demo-1-basics/**'
+            demo2:
+              - 'demo/demo-2-otel/**'
+
+      # 3️⃣ HARD CLEAN – free disk space (CRITICAL)
+      - name: Hard cleanup previous Podman state
+        run: |
+          echo "🔥 Cleaning Podman data to avoid disk issues"
+
+          podman ps -aq && podman stop -a || true
+          podman system prune -af --volumes || true
+
+          rm -rf $GITHUB_WORKSPACE/containers || true
+          rm -rf $GITHUB_WORKSPACE/runroot || true
+          rm -rf $GITHUB_WORKSPACE/tmp || true
+
+          sudo rm -rf /tmp/* || true
+
+      # 4️⃣ Install Podman & podman-compose
+      - name: Install Podman
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y podman python3-pip
+          pip install --no-cache-dir podman-compose
+          podman --version
+
+      # 5️⃣ Configure Podman storage (CI-safe)
+      - name: Configure Podman storage
+        run: |
+          STORAGE_ROOT="${GITHUB_WORKSPACE}/containers"
+          RUN_ROOT="${GITHUB_WORKSPACE}/runroot"
+          TMP_ROOT="${GITHUB_WORKSPACE}/tmp"
+
+          mkdir -p $STORAGE_ROOT $RUN_ROOT $TMP_ROOT
+          sudo mkdir -p /etc/containers
+
+          cat <<EOF | sudo tee /etc/containers/storage.conf
+          [storage]
+          driver = "overlay"
+          graphroot = "$STORAGE_ROOT"
+          runroot = "$RUN_ROOT"
+          EOF
+
+          echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
+          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
+          echo "BUILDAH_FORMAT=docker" >> $GITHUB_ENV
+          echo "PODMAN_LOG_LEVEL=error" >> $GITHUB_ENV
+
+          podman system migrate
+
+      # 6️⃣ Ensure Podman network
+      - name: Ensure Podman network
+        run: |
+          podman network exists edge-network || podman network create edge-network
+
+      # ===============================
+      # 🚀 DEMO-1 – BASIC STACK
+      # ===============================
+      - name: Build & Run Demo-1
+        if: steps.changes.outputs.demo1 == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: demo/demo-1-basics
+        run: |
+          echo "Running Demo-1..."
+          podman-compose build --no-cache
+          podman-compose up -d
+          podman ps
+
+      # ===============================
+      # 🚀 DEMO-2 – OTEL CORE
+      # ===============================
+      - name: Build & Run Demo-2 (Core)
+        if: steps.changes.outputs.demo2 == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: demo/demo-2-otel
+        run: |
+          echo "Running Demo-2 Core..."
+          podman-compose -f docker-compose.yml build --no-cache
+          podman-compose -f docker-compose.yml up -d
+
+      # ===============================
+      # 🚀 DEMO-2 – PERSISTENCE
+      # ===============================
+      - name: Run Demo-2 (Persistence)
+        if: steps.changes.outputs.demo2 == 'true' || github.event_name == 'workflow_dispatch'
+        working-directory: demo/demo-2-otel
+        run: |
+          podman-compose -f docker-compose-persistance.yml up -d
+
+      # 🔟 FINAL CLEANUP (always)
+      - name: Final cleanup
+        if: always()
+        run: |
+          podman system prune -af --volumes || true
