@@ -1,106 +1,88 @@
-name: Run Podman Compose (Clean Sequential Build)
+name: Run Podman Compose for demo-1-basics and demo-2-otel
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'demo/demo-1-basics/**'
+      - 'demo/demo-2-otel/**'
     paths-ignore:
-      - README.md
-      - "**/README.md"
+      - '**/README.md'
   pull_request:
+    paths:
+      - 'demo/demo-1-basics/**'
+      - 'demo/demo-2-otel/**'
     paths-ignore:
-      - README.md
-      - "**/README.md"
+      - '**/README.md'
 
 jobs:
   podman-compose:
     runs-on: ubuntu-latest
 
     steps:
-      # -------------------------------------------------
-      # 1️⃣ Checkout
-      # -------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -------------------------------------------------
-      # 2️⃣ Install Podman & podman-compose
-      # -------------------------------------------------
-      - name: Install Podman
+      - name: Install Podman & podman-compose
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
-          pip3 install --user podman-compose
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          pip install podman-compose
           podman --version
-          podman-compose --version
 
-      # -------------------------------------------------
-      # 3️⃣ Configure Podman storage (ROOTLESS & CI SAFE)
-      # -------------------------------------------------
       - name: Configure Podman storage
         run: |
-          mkdir -p ~/.config/containers ~/.local/share/containers
+          STORAGE_ROOT="/home/runner/work/_containers"
+          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
 
-          cat <<EOF > ~/.config/containers/storage.conf
-          [storage]
-          driver = "overlay"
-          graphroot = "$HOME/.local/share/containers"
-          EOF
+          echo "[storage]" | sudo tee /etc/containers/storage.conf
+          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
 
-          podman system migrate || true
+          podman system migrate
 
-      # -------------------------------------------------
-      # 4️⃣ Global pre-clean
-      # -------------------------------------------------
       - name: Pre-build Cleanup
         run: |
+          podman ps -aq | xargs -r podman stop
           podman ps -aq | xargs -r podman rm -f
           podman images -aq | xargs -r podman rmi -f
+          podman volume prune -f
+          podman network prune -f
           podman system prune -a -f
 
-  
-
-      # =================================================
-      # DEMO-1-BASICS
-      # =================================================
+      # Build and run demo-1-basics
       - name: Build & Run demo-1-basics
         working-directory: demo/demo-1-basics
         run: |
-          echo "Running demo-1-basics..."
-          podman-compose -p demo1 build --no-cache
-          podman-compose -p demo1 up -d
+          echo "Building and running demo-1-basics..."
+          podman-compose build --no-cache
+          podman-compose up -d
 
+          echo "Containers for demo-1-basics:"
           podman ps -a
-          podman-compose -p demo1 logs --no-color || true
 
-          podman-compose -p demo1 down -v
+          podman-compose logs || true
 
-      - name: Debug compose context
-        working-directory: demo-1-basics
-        run: |
-          pwd
-          ls -la
+          echo "Cleaning up demo-1-basics..."
+          podman-compose down -v
 
-
-      # =================================================
-      # DEMO-2-OTEL
-      # =================================================
+      # Build and run demo-2-otel
       - name: Build & Run demo-2-otel
         working-directory: demo/demo-2-otel
         run: |
-          echo "Running demo-2-otel..."
-          podman-compose -p demo2 build --no-cache
-          podman-compose -p demo2 up -d
+          echo "Building and running demo-2-otel..."
+          podman-compose build --no-cache
+          podman-compose up -d
 
-          podman ps
-          podman-compose -p demo2 logs --no-color
+          echo "Containers for demo-2-otel:"
+          podman ps -a
 
-          podman-compose -p demo2 down -v
+          podman-compose logs || true
 
-      # -------------------------------------------------
-      # 🔟 FINAL CLEANUP (always)
-      # -------------------------------------------------
+          echo "Cleaning up demo-2-otel..."
+          podman-compose down -v
+
       - name: Final Cleanup
         if: always()
         run: |
+          echo "Final Podman system cleanup..."
           podman system prune -a -f
