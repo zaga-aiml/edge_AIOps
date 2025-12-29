@@ -1,174 +1,136 @@
-name: Run Podman Compose (Folder-based)
+name: Run Podman Compose (Clean Build & Deploy)
 
 on:
-  # Manual trigger (run anytime)
-  workflow_dispatch:
-
-  # Auto trigger only when demo folders change
   push:
     branches: [ main ]
-    paths:
-      - 'demo/**'
-
+    paths-ignore:
+      - README.md
+      - "**/README.md"
   pull_request:
-    paths:
-      - 'demo/**'
+    paths-ignore:
+      - README.md
+      - "**/README.md"
 
 jobs:
   podman-compose:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        demo_dir:
+          - demo
+          - demo-1
+          - demo-2
+
     steps:
-      # 1️⃣ Checkout
-      - name: Checkout code
+      # -------------------------------------------------
+      # 1️⃣ Checkout code
+      # -------------------------------------------------
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Detect changed demo folders
-      - name: Detect changed demo folders
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            demo1:
-              - 'demo/demo-1-basics/**'
-            demo2:
-              - 'demo/demo-2-otel/**'
-
-      # 3️⃣ HARD CLEAN – free disk space
-      - name: Hard cleanup previous Podman state
-        run: |
-          echo "🔥 Cleaning Podman data"
-
-          podman ps -aq && podman stop -a || true
-          podman system prune -af --volumes || true
-
-          rm -rf $GITHUB_WORKSPACE/containers || true
-          rm -rf $GITHUB_WORKSPACE/runroot || true
-          rm -rf $GITHUB_WORKSPACE/tmp || true
-
-          sudo rm -rf /tmp/* || true
-
-      # 4️⃣ Install Podman & podman-compose
+      # -------------------------------------------------
+      # 2️⃣ Install Podman & podman-compose
+      # -------------------------------------------------
       - name: Install Podman
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
-          pip install --no-cache-dir podman-compose
+          pip install podman-compose
           podman --version
 
-      # 5️⃣ Configure Podman storage
+      # -------------------------------------------------
+      # 3️⃣ Configure Podman storage
+      # -------------------------------------------------
       - name: Configure Podman storage
         run: |
-          STORAGE_ROOT="${GITHUB_WORKSPACE}/containers"
-          RUN_ROOT="${GITHUB_WORKSPACE}/runroot"
-          TMP_ROOT="${GITHUB_WORKSPACE}/tmp"
+          STORAGE_ROOT="/home/runner/work/_containers"
+          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
 
-          mkdir -p $STORAGE_ROOT $RUN_ROOT $TMP_ROOT
-          sudo mkdir -p /etc/containers
+          if [ ! -f /etc/containers/storage.conf ]; then
+            echo "[storage]" | sudo tee /etc/containers/storage.conf
+          fi
 
-          cat <<EOF | sudo tee /etc/containers/storage.conf
-          [storage]
-          driver = "overlay"
-          graphroot = "$STORAGE_ROOT"
-          runroot = "$RUN_ROOT"
-          EOF
+          sudo sed -i '/graphroot/d' /etc/containers/storage.conf
+          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
 
-          echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
-          echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
-          echo "BUILDAH_FORMAT=docker" >> $GITHUB_ENV
-          echo "PODMAN_LOG_LEVEL=error" >> $GITHUB_ENV
-
+          cat /etc/containers/storage.conf
           podman system migrate
 
-      # 6️⃣ Ensure Podman network
+      # -------------------------------------------------
+      # 4️⃣ HARD CLEANUP BEFORE BUILD (disk safety)
+      # -------------------------------------------------
+      - name: Pre-build Podman Cleanup
+        run: |
+          echo "Cleaning old Podman artifacts..."
+
+          podman ps -aq | xargs -r podman stop
+          podman ps -aq | xargs -r podman rm -f
+          podman images -aq | xargs -r podman rmi -f
+
+          podman volume prune -f
+          podman network prune -f
+          podman system prune -a -f
+
+      # -------------------------------------------------
+      # 5️⃣ Ensure Podman network
+      # -------------------------------------------------
       - name: Ensure Podman network
         run: |
-          podman network exists edge-network || podman network create edge-network
+          NETWORK_NAME="anomaly-network"
+          podman network exists "$NETWORK_NAME" || podman network create "$NETWORK_NAME"
 
-      # ===============================
-      # 🚀 DEMO-1 – BASIC STACK
-      # ===============================
-      - name: Build & Run Demo-1
-        if: steps.changes.outputs.demo1 == 'true' || github.event_name == 'workflow_dispatch'
-        working-directory: demo/demo-1-basics
+      # -------------------------------------------------
+      # 6️⃣ Build images
+      # -------------------------------------------------
+      - name: Build Podman images
+        working-directory: ${{ matrix.demo_dir }}
         run: |
-          echo "Running Demo-1..."
-          podman-compose build --no-cache
-          podman-compose up -d
+          echo "Building in ${{ matrix.demo_dir }}"
+          podman-compose -f docker-compose.yaml build --no-cache
 
-          echo "=== Running containers ==="
+      # -------------------------------------------------
+      # 7️⃣ Run containers
+      # -------------------------------------------------
+      - name: Run Podman Compose
+        working-directory: ${{ matrix.demo_dir }}
+        run: |
+          podman-compose -f docker-compose.yaml up -d
           podman ps
 
-          echo "=== All containers (including exited) ==="
+      # -------------------------------------------------
+      # 8️⃣ Verify environment
+      # -------------------------------------------------
+      - name: Verify Podman environment
+        run: |
+          podman network ls
           podman ps -a
 
-      # ===============================
-      # 🚀 DEMO-2 – OTEL CORE
-      # ===============================
-      - name: Build & Run Demo-2 (Core)
-        if: steps.changes.outputs.demo2 == 'true' || github.event_name == 'workflow_dispatch'
-        working-directory: demo/demo-2-otel
+      # -------------------------------------------------
+      # 9️⃣ Show logs
+      # -------------------------------------------------
+      - name: Show Container Logs
+        working-directory: ${{ matrix.demo_dir }}
         run: |
-          echo "Running Demo-2 Core..."
-          podman-compose -f docker-compose.yml build --no-cache
-          podman-compose -f docker-compose.yml up -d
+          podman ps --format "{{.Names}}" | while read c; do
+            echo "----------------------------"
+            echo "Logs for $c"
+            echo "----------------------------"
+            podman logs "$c" || true
+          done
 
-          echo "=== Running containers ==="
-          podman ps
-
-          echo "=== All containers (including exited) ==="
-          podman ps -a
-
-      # ===============================
-      # 🚀 DEMO-2 – PERSISTENCE
-      # ===============================
-      - name: Run Demo-2 (Persistence)
-        if: steps.changes.outputs.demo2 == 'true' || github.event_name == 'workflow_dispatch'
-        working-directory: demo/demo-2-otel
-        run: |
-          podman-compose -f docker-compose-persistance.yml up -d
-
-      # ===============================
-      # 📄 SHOW ALL LOGS (ALWAYS)
-      # ===============================
-      - name: Show all Podman & Compose logs
+      # -------------------------------------------------
+      # 🔟 FINAL CLEANUP (ALWAYS)
+      # -------------------------------------------------
+      - name: Final Podman Cleanup
         if: always()
         run: |
-          echo "========================================"
-          echo "📦 Podman containers (ALL)"
-          echo "========================================"
-          podman ps -a || true
+          echo "Final cleanup..."
 
-          echo "========================================"
-          echo "📄 Demo-1 logs"
-          echo "========================================"
-          if [ -d "demo/demo-1-basics" ]; then
-            cd demo/demo-1-basics
-            podman-compose logs --no-color || true
-            cd - >/dev/null
-          fi
+          podman ps -aq | xargs -r podman stop
+          podman ps -aq | xargs -r podman rm -f
+          podman images -aq | xargs -r podman rmi -f
 
-          echo "========================================"
-          echo "📄 Demo-2 Core logs"
-          echo "========================================"
-          if [ -d "demo/demo-2-otel" ]; then
-            cd demo/demo-2-otel
-            podman-compose -f docker-compose.yml logs --no-color || true
-
-            echo "========================================"
-            echo "📄 Demo-2 Persistence logs"
-            echo "========================================"
-            podman-compose -f docker-compose-persistance.yml logs --no-color || true
-            cd - >/dev/null
-          fi
-
-          echo "========================================"
-          echo "📦 Raw container logs (fallback)"
-          echo "========================================"
-          podman ps -aq | xargs -r podman logs || true
-
-      # 🔟 FINAL CLEANUP
-      - name: Final cleanup
-        if: always()
-        run: |
-          podman system prune -af --volumes || true
+          podman volume prune -f
+          podman network prune -f
+          podman system prune -a -f
