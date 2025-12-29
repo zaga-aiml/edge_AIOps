@@ -1,4 +1,4 @@
-name: Run Podman Compose (Clean Build & Deploy)
+name: Run Podman Compose (Clean Sequential Build)
 
 on:
   push:
@@ -15,16 +15,9 @@ jobs:
   podman-compose:
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        demo_dir:
-          - demo
-          - demo-1-basics
-          - demo-2-otel
-
     steps:
       # -------------------------------------------------
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout
       # -------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,90 +40,85 @@ jobs:
           STORAGE_ROOT="/home/runner/work/_containers"
           sudo mkdir -p "$STORAGE_ROOT" /etc/containers
 
-          if [ ! -f /etc/containers/storage.conf ]; then
-            echo "[storage]" | sudo tee /etc/containers/storage.conf
-          fi
-
-          sudo sed -i '/graphroot/d' /etc/containers/storage.conf
+          echo "[storage]" | sudo tee /etc/containers/storage.conf
           echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
 
-          cat /etc/containers/storage.conf
           podman system migrate
 
       # -------------------------------------------------
-      # 4️⃣ HARD CLEANUP BEFORE BUILD (disk safety)
+      # 4️⃣ Global pre-clean (safety)
       # -------------------------------------------------
-      - name: Pre-build Podman Cleanup
+      - name: Pre-build Cleanup
         run: |
-          echo "Cleaning old Podman artifacts..."
-
           podman ps -aq | xargs -r podman stop
           podman ps -aq | xargs -r podman rm -f
           podman images -aq | xargs -r podman rmi -f
-
           podman volume prune -f
           podman network prune -f
           podman system prune -a -f
 
-      # -------------------------------------------------
-      # 5️⃣ Ensure Podman network
-      # -------------------------------------------------
-      - name: Ensure Podman network
+      # =================================================
+      # DEMO
+      # =================================================
+      - name: Build & Run Demo
+        working-directory: demo
         run: |
-          NETWORK_NAME="edge-network"
-          podman network exists "$NETWORK_NAME" || podman network create "$NETWORK_NAME"
+          echo "Running demo..."
+          podman-compose -p demo build --no-cache
+          podman-compose -p demo up -d
 
-      # -------------------------------------------------
-      # 6️⃣ Build images
-      # -------------------------------------------------
-      - name: Build Podman images
-        working-directory: ${{ matrix.demo_dir }}
-        run: |
-          echo "Building in ${{ matrix.demo_dir }}"
-          podman-compose -f docker-compose.yaml build --no-cache
-
-      # -------------------------------------------------
-      # 7️⃣ Run containers
-      # -------------------------------------------------
-      - name: Run Podman Compose
-        working-directory: ${{ matrix.demo_dir }}
-        run: |
-          podman-compose -f docker-compose.yaml up -d
+          echo "Containers:"
           podman ps
 
-      # -------------------------------------------------
-      # 8️⃣ Verify environment
-      # -------------------------------------------------
-      - name: Verify Podman environment
+          echo "Logs:"
+          podman-compose -p demo logs
+
+          echo "Cleanup demo..."
+          podman-compose -p demo down -v
+
+      # =================================================
+      # DEMO-1
+      # =================================================
+      - name: Build & Run Demo-1
+        working-directory: demo-1-basics
         run: |
-          podman network ls
-          podman ps -a
+          echo "Running demo-1..."
+          podman-compose -p demo1 build --no-cache
+          podman-compose -p demo1 up -d
+
+          echo "Containers:"
+          podman ps
+
+          echo "Logs:"
+          podman-compose -p demo1 logs
+
+          echo "Cleanup demo-1..."
+          podman-compose -p demo1 down -v
+
+      # =================================================
+      # DEMO-2
+      # =================================================
+      - name: Build & Run Demo-2
+        working-directory: demo-2-otel
+        run: |
+          echo "Running demo-2..."
+          podman-compose -p demo2 build --no-cache
+          podman-compose -p demo2 up -d
+
+          echo "Containers:"
+          podman ps
+
+          echo "Logs:"
+          podman-compose -p demo2 logs
+
+          echo "Cleanup demo-2..."
+          podman-compose -p demo2 down -v
 
       # -------------------------------------------------
-      # 9️⃣ Show logs
+      # 🔟 FINAL CLEANUP (always)
       # -------------------------------------------------
-      - name: Show Container Logs
-        working-directory: ${{ matrix.demo_dir }}
-        run: |
-          podman ps --format "{{.Names}}" | while read c; do
-            echo "----------------------------"
-            echo "Logs for $c"
-            echo "----------------------------"
-            podman logs "$c" || true
-          done
-
-      # -------------------------------------------------
-      # 🔟 FINAL CLEANUP (ALWAYS)
-      # -------------------------------------------------
-      - name: Final Podman Cleanup
+      - name: Final Cleanup
         if: always()
         run: |
-          echo "Final cleanup..."
-
-          podman ps -aq | xargs -r podman stop
-          podman ps -aq | xargs -r podman rm -f
-          podman images -aq | xargs -r podman rmi -f
-
-          podman volume prune -f
-          podman network prune -f
+          echo "Final Podman cleanup..."
           podman system prune -a -f
