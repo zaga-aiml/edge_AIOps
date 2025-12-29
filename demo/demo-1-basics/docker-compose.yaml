@@ -96,6 +96,12 @@ jobs:
           podman-compose build --no-cache
           podman-compose up -d
 
+          echo "=== Running containers ==="
+          podman ps
+
+          echo "=== All containers (including exited) ==="
+          podman ps -a
+
       # ===============================
       # 🚀 DEMO-2 – OTEL CORE
       # ===============================
@@ -106,6 +112,12 @@ jobs:
           echo "Running Demo-2 Core..."
           podman-compose -f docker-compose.yml build --no-cache
           podman-compose -f docker-compose.yml up -d
+
+          echo "=== Running containers ==="
+          podman ps
+
+          echo "=== All containers (including exited) ==="
+          podman ps -a
 
       # ===============================
       # 🚀 DEMO-2 – PERSISTENCE
