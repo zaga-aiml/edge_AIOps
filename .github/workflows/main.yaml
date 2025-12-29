@@ -58,20 +58,7 @@ jobs:
           podman images -aq | xargs -r podman rmi -f
           podman system prune -a -f
 
-      # =================================================
-      # DEMO
-      # =================================================
-      - name: Build & Run demo
-        working-directory: demo
-        run: |
-          echo "Running demo..."
-          podman-compose -p demo build --no-cache
-          podman-compose -p demo up -d
-
-          podman ps
-          podman-compose -p demo logs --no-color
-
-          podman-compose -p demo down -v
+  
 
       # =================================================
       # DEMO-1-BASICS
