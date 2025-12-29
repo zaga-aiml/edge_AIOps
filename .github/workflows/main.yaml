@@ -88,6 +88,13 @@ jobs:
 
           podman-compose -p demo1 down -v
 
+      - name: Debug compose context
+        working-directory: demo-1-basics
+        run: |
+          pwd
+          ls -la
+
+
       # =================================================
       # DEMO-2-OTEL
       # =================================================
