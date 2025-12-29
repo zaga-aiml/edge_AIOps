@@ -5,16 +5,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: anomaly-app
     ports:
       - "8000:8000"
     environment:
       PYTHONPATH: /app
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      PROCESS_ANOMALY_URL: http://fastapi-app:8001/process-anomaly
-      REDIS_OBS_HOST: redis
-      REDIS_OBS_PORT: 6379
-      DATABASE_URL: postgresql://anomaly:anomaly123$$@anomaly-db:5432/anomaly-db
+      PROCESS_ANOMALY_URL: http://app:8000/process-anomaly
+      DATABASE_URL: postgresql://anomaly:anomaly123@anomaly-db:5432/anomaly_db
     depends_on:
       - redis
       - anomaly-db
@@ -24,8 +23,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    container_name: anomaly-redis
     volumes:
       - redis_data:/data
     networks:
@@ -33,13 +31,12 @@ services:
 
   anomaly-db:
     image: quay.io/osclimate/postgresql-13:1-101
-    ports:
-      - "5433:5432"
+    container_name: anomaly-db
     environment:
-      POSTGRESQL_ADMIN_PASSWORD: admin123$$
-      POSTGRESQL_DATABASE: anomaly-db
-      POSTGRESQL_PASSWORD: anomaly123$$
+      POSTGRESQL_ADMIN_PASSWORD: admin123
+      POSTGRESQL_DATABASE: anomaly_db
       POSTGRESQL_USER: anomaly
+      POSTGRESQL_PASSWORD: anomaly123
     networks:
       - anomaly-network
 
