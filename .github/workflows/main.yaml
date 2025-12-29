@@ -64,7 +64,7 @@ jobs:
       # DEMO-1-BASICS
       # =================================================
       - name: Build & Run demo-1-basics
-        working-directory: demo-1-basics
+        working-directory: demo/demo-1-basics
         run: |
           echo "Running demo-1-basics..."
           podman-compose -p demo1 build --no-cache
@@ -86,7 +86,7 @@ jobs:
       # DEMO-2-OTEL
       # =================================================
       - name: Build & Run demo-2-otel
-        working-directory: demo-2-otel
+        working-directory: demo/demo-2-otel
         run: |
           echo "Running demo-2-otel..."
           podman-compose -p demo2 build --no-cache
