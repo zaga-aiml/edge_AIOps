@@ -5,14 +5,11 @@ on:
     branches: [ main ]
     paths:
       - 'demo/**'
-      - '!README.md'
-      - '!**/README.md'
+ 
   pull_request:
     paths:
       - 'demo/**'
-    paths-ignore:
-      - README.md
-      - '**/README.md'
+   
 
 jobs:
   podman-compose:
