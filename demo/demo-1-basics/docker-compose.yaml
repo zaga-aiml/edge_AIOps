@@ -19,8 +19,8 @@ jobs:
       matrix:
         demo_dir:
           - demo
-          - demo-1
-          - demo-2
+          - demo-1-basics
+          - demo-2-otel
 
     steps:
       # -------------------------------------------------
@@ -77,7 +77,7 @@ jobs:
       # -------------------------------------------------
       - name: Ensure Podman network
         run: |
-          NETWORK_NAME="anomaly-network"
+          NETWORK_NAME="edge-network"
           podman network exists "$NETWORK_NAME" || podman network create "$NETWORK_NAME"
 
       # -------------------------------------------------
