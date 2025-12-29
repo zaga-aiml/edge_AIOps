@@ -1,124 +1,69 @@
-name: Run Podman Compose (Clean Sequential Build)
+version: "3.9"
 
-on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - README.md
-      - "**/README.md"
-  pull_request:
-    paths-ignore:
-      - README.md
-      - "**/README.md"
+services:
+  
+  redis:
+    image: redis:7-alpine
+    container_name: anomaly-redis
+    ports:
+      - "6379:6379"
+    
+    networks:
+        - anomaly-network
+  anomaly-db:
+    image: quay.io/osclimate/postgresql-13:1-101
+    container_name: anomaly-db
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRESQL_ADMIN_PASSWORD=admin123$
+      - POSTGRESQL_DATABASE=anomaly-db
+      - POSTGRESQL_PASSWORD=anomaly123$
+      - POSTGRESQL_USER=anomaly
+    networks:
+      - anomaly-network
+  llm-faiss:
+    build: ./anomaly-llm-faiss
+    container_name: llm-faiss
+    ports:
+      - "8002:8002"
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --workers 2
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - ACTION_REQ=N
+      - LLM_INFERENCE_QUEUE=llm_inference_queue
+    depends_on:
+      - redis
+    networks:
+      - anomaly-network
 
-jobs:
-  podman-compose:
-    runs-on: ubuntu-latest
+  anomaly-detection:
+    build:
+      context: ./anomaly_isolation_forest
+      dockerfile: Dockerfile
+    container_name: anomaly-detection
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PROCESS_ANOMALY_URL=http://llm-faiss:8002/process-anomaly
+      - REDIS_OBS_HOST=redis
+      - REDIS_OBS_PORT=6379
+      - DATABASE_URL=postgresql://anomaly:anomaly123$@anomaly-db:5432/anomaly-db
+    # volumes:
+    #   - ${PWD}/anomaly_isolation_forest:/app
+    depends_on:
+      - redis
+      - llm-faiss
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2
+    networks:
+      - anomaly-network
 
-    steps:
-      # -------------------------------------------------
-      # 1️⃣ Checkout
-      # -------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@v4
 
-      # -------------------------------------------------
-      # 2️⃣ Install Podman & podman-compose
-      # -------------------------------------------------
-      - name: Install Podman
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y podman python3-pip
-          pip install podman-compose
-          podman --version
-
-      # -------------------------------------------------
-      # 3️⃣ Configure Podman storage
-      # -------------------------------------------------
-      - name: Configure Podman storage
-        run: |
-          STORAGE_ROOT="/home/runner/work/_containers"
-          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
-
-          echo "[storage]" | sudo tee /etc/containers/storage.conf
-          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
-
-          podman system migrate
-
-      # -------------------------------------------------
-      # 4️⃣ Global pre-clean (safety)
-      # -------------------------------------------------
-      - name: Pre-build Cleanup
-        run: |
-          podman ps -aq | xargs -r podman stop
-          podman ps -aq | xargs -r podman rm -f
-          podman images -aq | xargs -r podman rmi -f
-          podman volume prune -f
-          podman network prune -f
-          podman system prune -a -f
-
-      # =================================================
-      # DEMO
-      # =================================================
-      - name: Build & Run Demo
-        working-directory: demo
-        run: |
-          echo "Running demo..."
-          podman-compose -p demo build --no-cache
-          podman-compose -p demo up -d
-
-          echo "Containers:"
-          podman ps
-
-          echo "Logs:"
-          podman-compose -p demo logs
-
-          echo "Cleanup demo..."
-          podman-compose -p demo down -v
-
-      # =================================================
-      # DEMO-1
-      # =================================================
-      - name: Build & Run Demo-1
-        working-directory: demo-1-basics
-        run: |
-          echo "Running demo-1..."
-          podman-compose -p demo1 build --no-cache
-          podman-compose -p demo1 up -d
-
-          echo "All containers (including exited):"
-          podman ps -a
-
-          echo "Compose logs:"
-          podman-compose -p demo1 logs --no-color || true
-
-          echo "Cleanup Demo-1..."
-          podman-compose -p demo1 down -v
-
-      # =================================================
-      # DEMO-2
-      # =================================================
-      - name: Build & Run Demo-2
-        working-directory: demo-2-otel
-        run: |
-          echo "Running demo-2..."
-          podman-compose -p demo2 build --no-cache
-          podman-compose -p demo2 up -d
-
-          echo "Containers:"
-          podman ps
-
-          echo "Logs:"
-          podman-compose -p demo2 logs
-
-          echo "Cleanup demo-2..."
-          podman-compose -p demo2 down -v
-
-      # -------------------------------------------------
-      # 🔟 FINAL CLEANUP (always)
-      # -------------------------------------------------
-      - name: Final Cleanup
-        if: always()
-        run: |
-          echo "Final Podman cleanup..."
-          podman system prune -a -f
+networks:
+  anomaly-network:
+    external: true
