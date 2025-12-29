@@ -29,89 +29,78 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
-          pip install podman-compose
+          pip3 install --user podman-compose
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           podman --version
+          podman-compose --version
 
       # -------------------------------------------------
-      # 3️⃣ Configure Podman storage
+      # 3️⃣ Configure Podman storage (ROOTLESS & CI SAFE)
       # -------------------------------------------------
       - name: Configure Podman storage
         run: |
-          STORAGE_ROOT="/home/runner/work/_containers"
-          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
+          mkdir -p ~/.config/containers ~/.local/share/containers
 
-          echo "[storage]" | sudo tee /etc/containers/storage.conf
-          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
+          cat <<EOF > ~/.config/containers/storage.conf
+          [storage]
+          driver = "overlay"
+          graphroot = "$HOME/.local/share/containers"
+          EOF
 
-          podman system migrate
+          podman system migrate || true
 
       # -------------------------------------------------
-      # 4️⃣ Global pre-clean (safety)
+      # 4️⃣ Global pre-clean
       # -------------------------------------------------
       - name: Pre-build Cleanup
         run: |
-          podman ps -aq | xargs -r podman stop
           podman ps -aq | xargs -r podman rm -f
           podman images -aq | xargs -r podman rmi -f
-          podman volume prune -f
-          podman network prune -f
           podman system prune -a -f
 
       # =================================================
       # DEMO
       # =================================================
-      - name: Build & Run Demo
+      - name: Build & Run demo
         working-directory: demo
         run: |
           echo "Running demo..."
           podman-compose -p demo build --no-cache
           podman-compose -p demo up -d
 
-          echo "Containers:"
           podman ps
+          podman-compose -p demo logs --no-color
 
-          echo "Logs:"
-          podman-compose -p demo logs
-
-          echo "Cleanup demo..."
           podman-compose -p demo down -v
 
       # =================================================
-      # DEMO-1
+      # DEMO-1-BASICS
       # =================================================
-      - name: Build & Run Demo-1
+      - name: Build & Run demo-1-basics
         working-directory: demo-1-basics
         run: |
-          echo "Running demo-1..."
+          echo "Running demo-1-basics..."
           podman-compose -p demo1 build --no-cache
           podman-compose -p demo1 up -d
 
-          echo "All containers (including exited):"
           podman ps -a
-
-          echo "Compose logs:"
           podman-compose -p demo1 logs --no-color || true
 
-          echo "Cleanup Demo-1..."
           podman-compose -p demo1 down -v
 
       # =================================================
-      # DEMO-2
+      # DEMO-2-OTEL
       # =================================================
-      - name: Build & Run Demo-2
+      - name: Build & Run demo-2-otel
         working-directory: demo-2-otel
         run: |
-          echo "Running demo-2..."
+          echo "Running demo-2-otel..."
           podman-compose -p demo2 build --no-cache
           podman-compose -p demo2 up -d
 
-          echo "Containers:"
           podman ps
+          podman-compose -p demo2 logs --no-color
 
-          echo "Logs:"
-          podman-compose -p demo2 logs
-
-          echo "Cleanup demo-2..."
           podman-compose -p demo2 down -v
 
       # -------------------------------------------------
@@ -120,5 +109,4 @@ jobs:
       - name: Final Cleanup
         if: always()
         run: |
-          echo "Final Podman cleanup..."
           podman system prune -a -f
