@@ -86,13 +86,13 @@ jobs:
           podman-compose -p demo1 build --no-cache
           podman-compose -p demo1 up -d
 
-          echo "Containers:"
-          podman ps
+          echo "All containers (including exited):"
+          podman ps -a
 
-          echo "Logs:"
-          podman-compose -p demo1 logs
+          echo "Compose logs:"
+          podman-compose -p demo1 logs --no-color || true
 
-          echo "Cleanup demo-1..."
+          echo "Cleanup Demo-1..."
           podman-compose -p demo1 down -v
 
       # =================================================
