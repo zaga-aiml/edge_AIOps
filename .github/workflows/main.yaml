@@ -23,7 +23,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Detect changed folders
+      # 2️⃣ Detect changed demo folders
       - name: Detect changed demo folders
         id: changes
         uses: dorny/paths-filter@v3
@@ -34,7 +34,22 @@ jobs:
             demo2:
               - 'demo/demo-2-otel/**'
 
-      # 3️⃣ Install Podman (only if needed)
+      # 3️⃣ HARD CLEAN – Free disk space (CRITICAL)
+      - name: Hard cleanup previous Podman state
+        if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
+        run: |
+          echo "🔥 Cleaning previous Podman data"
+
+          podman ps -aq && podman stop -a || true
+          podman system prune -af --volumes || true
+
+          rm -rf $GITHUB_WORKSPACE/containers || true
+          rm -rf $GITHUB_WORKSPACE/runroot || true
+          rm -rf $GITHUB_WORKSPACE/tmp || true
+
+          sudo rm -rf /tmp/* || true
+
+      # 4️⃣ Install Podman & podman-compose
       - name: Install Podman
         if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
@@ -43,7 +58,7 @@ jobs:
           pip install --no-cache-dir podman-compose
           podman --version
 
-      # 4️⃣ Configure Podman storage & temp (CRITICAL FIX)
+      # 5️⃣ Configure Podman storage & temp
       - name: Configure Podman storage
         if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
@@ -63,13 +78,12 @@ jobs:
 
           echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
           echo "PIP_NO_CACHE_DIR=1" >> $GITHUB_ENV
-          echo "HF_HOME=$TMP_ROOT/huggingface" >> $GITHUB_ENV
-          echo "TRANSFORMERS_CACHE=$TMP_ROOT/huggingface/transformers" >> $GITHUB_ENV
           echo "BUILDAH_FORMAT=docker" >> $GITHUB_ENV
+          echo "PODMAN_LOG_LEVEL=error" >> $GITHUB_ENV
 
           podman system migrate
 
-      # 5️⃣ Ensure Podman network
+      # 6️⃣ Ensure Podman network
       - name: Ensure Podman network
         if: steps.changes.outputs.demo1 == 'true' || steps.changes.outputs.demo2 == 'true'
         run: |
@@ -83,13 +97,9 @@ jobs:
         working-directory: demo/demo-1-basics
         run: |
           echo "Running Demo-1..."
-          podman-compose build
+          podman-compose build --no-cache
           podman-compose up -d
           podman ps
-
-      - name: Prune after Demo-1
-        if: steps.changes.outputs.demo1 == 'true'
-        run: podman system prune -af --volumes
 
       # ===============================
       # 🚀 DEMO-2 – OTEL CORE
@@ -99,7 +109,7 @@ jobs:
         working-directory: demo/demo-2-otel
         run: |
           echo "Running Demo-2 Core..."
-          podman-compose -f docker-compose.yml build
+          podman-compose -f docker-compose.yml build --no-cache
           podman-compose -f docker-compose.yml up -d
 
       # ===============================
@@ -111,8 +121,8 @@ jobs:
         run: |
           podman-compose -f docker-compose-persistance.yml up -d
 
-      # 🔟 Cleanup (Always)
-      - name: Cleanup
+      # 🔟 FINAL CLEANUP (ALWAYS)
+      - name: Final cleanup
         if: always()
         run: |
           podman system prune -af --volumes || true
