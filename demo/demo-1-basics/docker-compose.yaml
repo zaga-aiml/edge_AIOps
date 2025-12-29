@@ -1,10 +1,10 @@
 name: Run Podman Compose (Folder-based)
 
 on:
-  # ✅ Manual trigger (run anytime, no code changes needed)
+  # Manual trigger (run anytime)
   workflow_dispatch:
 
-  # ✅ Auto trigger only when demo folder changes
+  # Auto trigger only when demo folders change
   push:
     branches: [ main ]
     paths:
@@ -19,11 +19,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
+      # 1️⃣ Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Detect which demo changed
+      # 2️⃣ Detect changed demo folders
       - name: Detect changed demo folders
         id: changes
         uses: dorny/paths-filter@v3
@@ -34,10 +34,10 @@ jobs:
             demo2:
               - 'demo/demo-2-otel/**'
 
-      # 3️⃣ HARD CLEAN – free disk space (CRITICAL)
+      # 3️⃣ HARD CLEAN – free disk space
       - name: Hard cleanup previous Podman state
         run: |
-          echo "🔥 Cleaning Podman data to avoid disk issues"
+          echo "🔥 Cleaning Podman data"
 
           podman ps -aq && podman stop -a || true
           podman system prune -af --volumes || true
@@ -56,7 +56,7 @@ jobs:
           pip install --no-cache-dir podman-compose
           podman --version
 
-      # 5️⃣ Configure Podman storage (CI-safe)
+      # 5️⃣ Configure Podman storage
       - name: Configure Podman storage
         run: |
           STORAGE_ROOT="${GITHUB_WORKSPACE}/containers"
@@ -95,7 +95,6 @@ jobs:
           echo "Running Demo-1..."
           podman-compose build --no-cache
           podman-compose up -d
-          podman ps
 
       # ===============================
       # 🚀 DEMO-2 – OTEL CORE
@@ -117,7 +116,46 @@ jobs:
         run: |
           podman-compose -f docker-compose-persistance.yml up -d
 
-      # 🔟 FINAL CLEANUP (always)
+      # ===============================
+      # 📄 SHOW ALL LOGS (ALWAYS)
+      # ===============================
+      - name: Show all Podman & Compose logs
+        if: always()
+        run: |
+          echo "========================================"
+          echo "📦 Podman containers (ALL)"
+          echo "========================================"
+          podman ps -a || true
+
+          echo "========================================"
+          echo "📄 Demo-1 logs"
+          echo "========================================"
+          if [ -d "demo/demo-1-basics" ]; then
+            cd demo/demo-1-basics
+            podman-compose logs --no-color || true
+            cd - >/dev/null
+          fi
+
+          echo "========================================"
+          echo "📄 Demo-2 Core logs"
+          echo "========================================"
+          if [ -d "demo/demo-2-otel" ]; then
+            cd demo/demo-2-otel
+            podman-compose -f docker-compose.yml logs --no-color || true
+
+            echo "========================================"
+            echo "📄 Demo-2 Persistence logs"
+            echo "========================================"
+            podman-compose -f docker-compose-persistance.yml logs --no-color || true
+            cd - >/dev/null
+          fi
+
+          echo "========================================"
+          echo "📦 Raw container logs (fallback)"
+          echo "========================================"
+          podman ps -aq | xargs -r podman logs || true
+
+      # 🔟 FINAL CLEANUP
       - name: Final cleanup
         if: always()
         run: |
