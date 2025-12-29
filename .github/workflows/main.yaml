@@ -6,14 +6,10 @@ on:
     paths:
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
-    paths-ignore:
-      - '**/README.md'
   pull_request:
     paths:
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
-    paths-ignore:
-      - '**/README.md'
 
 jobs:
   podman-compose:
@@ -22,6 +18,27 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Check for README.md only changes
+        id: check_readme_only
+        run: |
+          git fetch origin main
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          echo "Changed files: $CHANGED_FILES"
+          for file in $CHANGED_FILES; do
+            if [[ "$file" != *README.md ]]; then
+              echo "Non-README file changed"
+              echo "run=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "run=false" >> $GITHUB_OUTPUT
+
+      - name: Abort if only README.md changed
+        if: steps.check_readme_only.outputs.run == 'false'
+        run: |
+          echo "Only README.md files changed; skipping job"
+          exit 0
 
       - name: Install Podman & podman-compose
         run: |
@@ -49,7 +66,6 @@ jobs:
           podman network prune -f
           podman system prune -a -f
 
-      # Build and run demo-1-basics
       - name: Build & Run demo-1-basics
         working-directory: demo/demo-1-basics
         run: |
@@ -65,7 +81,6 @@ jobs:
           echo "Cleaning up demo-1-basics..."
           podman-compose down -v
 
-      # Build and run demo-2-otel
       - name: Build & Run demo-2-otel
         working-directory: demo/demo-2-otel
         run: |
