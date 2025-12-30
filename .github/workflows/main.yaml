@@ -16,22 +16,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --------------------------------------------------
+      # Skip README-only changes
+      # --------------------------------------------------
       - name: Check for README.md only changes
         id: check_readme_only
         run: |
           git fetch origin main
           CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
           echo "Changed files: $CHANGED_FILES"
+
           for file in $CHANGED_FILES; do
             if [[ "$file" != *README.md ]]; then
-              echo "Non-README file changed"
               echo "run=true" >> $GITHUB_OUTPUT
               exit 0
             fi
           done
+
           echo "run=false" >> $GITHUB_OUTPUT
 
       - name: Abort if only README.md changed
@@ -40,13 +47,20 @@ jobs:
           echo "Only README.md files changed; skipping job"
           exit 0
 
+      # --------------------------------------------------
+      # Install Podman
+      # --------------------------------------------------
       - name: Install Podman & podman-compose
         run: |
           sudo apt-get update -y
           sudo apt-get install -y podman python3-pip
           pip install podman-compose
           podman --version
+          podman-compose --version
 
+      # --------------------------------------------------
+      # Configure Podman storage (CI-safe)
+      # --------------------------------------------------
       - name: Configure Podman storage
         run: |
           STORAGE_ROOT="/home/runner/work/_containers"
@@ -55,8 +69,11 @@ jobs:
           echo "[storage]" | sudo tee /etc/containers/storage.conf
           echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
 
-          podman system migrate
+          podman system migrate || true
 
+      # --------------------------------------------------
+      # Hard cleanup (before build)
+      # --------------------------------------------------
       - name: Pre-build Cleanup
         run: |
           podman ps -aq | xargs -r podman stop
@@ -66,36 +83,55 @@ jobs:
           podman network prune -f
           podman system prune -a -f
 
+      # --------------------------------------------------
+      # Create external networks (required!)
+      # --------------------------------------------------
+      - name: Create Podman networks
+        run: |
+          podman network exists anomaly-network || podman network create anomaly-network
+          podman network exists otel-network || podman network create otel-network
+
+      # --------------------------------------------------
+      # demo-1-basics
+      # --------------------------------------------------
       - name: Build & Run demo-1-basics
         working-directory: demo/demo-1-basics
         run: |
           echo "Building and running demo-1-basics..."
-          podman-compose build --no-cache
-          podman-compose up -d
 
-          echo "Containers for demo-1-basics:"
+          podman-compose -f docker-compose.yaml build --no-cache
+          podman-compose -f docker-compose.yaml up -d
+
+          echo "Containers:"
           podman ps -a
 
-          podman-compose logs || true
+          podman-compose -f docker-compose.yaml logs || true
 
           echo "Cleaning up demo-1-basics..."
-          podman-compose down -v
+          podman-compose -f docker-compose.yaml down -v
 
+      # --------------------------------------------------
+      # demo-2-otel
+      # --------------------------------------------------
       - name: Build & Run demo-2-otel
         working-directory: demo/demo-2-otel
         run: |
           echo "Building and running demo-2-otel..."
-          podman-compose build --no-cache
-          podman-compose up -d
 
-          echo "Containers for demo-2-otel:"
+          podman-compose -f docker-compose.yaml build --no-cache
+          podman-compose -f docker-compose.yaml up -d
+
+          echo "Containers:"
           podman ps -a
 
-          podman-compose logs || true
+          podman-compose -f docker-compose.yaml logs || true
 
           echo "Cleaning up demo-2-otel..."
-          podman-compose down -v
+          podman-compose -f docker-compose.yaml down -v
 
+      # --------------------------------------------------
+      # Final cleanup
+      # --------------------------------------------------
       - name: Final Cleanup
         if: always()
         run: |
