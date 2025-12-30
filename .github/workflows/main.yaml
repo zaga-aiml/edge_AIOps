@@ -4,12 +4,15 @@ on:
   push:
     branches: [ main ]
     paths:
+      - '.github/workflows/**'
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
   pull_request:
     paths:
+      - '.github/workflows/**'
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
+  workflow_dispatch:
 
 jobs:
   podman-compose:
