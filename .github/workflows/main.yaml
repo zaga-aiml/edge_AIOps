@@ -62,20 +62,27 @@ jobs:
           podman-compose --version
 
       # --------------------------------------------------
-      # Configure Podman storage (CI-safe)
+      # 🔴 CRITICAL FIX #1: Podman storage + TMPDIR
       # --------------------------------------------------
-      - name: Configure Podman storage
+      - name: Configure Podman storage and temp dirs
         run: |
-          STORAGE_ROOT="/home/runner/work/_containers"
-          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
+          STORAGE_ROOT="/home/runner/work/podman-storage"
+          TMP_ROOT="/home/runner/work/podman-tmp"
+
+          sudo mkdir -p "$STORAGE_ROOT" "$TMP_ROOT" /etc/containers
 
           echo "[storage]" | sudo tee /etc/containers/storage.conf
-          echo "graphroot=\"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
+          echo "driver = \"overlay\"" | sudo tee -a /etc/containers/storage.conf
+          echo "graphroot = \"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
+          echo "runroot = \"$TMP_ROOT\"" | sudo tee -a /etc/containers/storage.conf
+
+          echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
+          echo "XDG_RUNTIME_DIR=$TMP_ROOT" >> $GITHUB_ENV
 
           podman system migrate || true
 
       # --------------------------------------------------
-      # Hard cleanup (before build)
+      # Cleanup before builds
       # --------------------------------------------------
       - name: Pre-build Cleanup
         run: |
@@ -87,7 +94,7 @@ jobs:
           podman system prune -a -f
 
       # --------------------------------------------------
-      # Create external networks (required!)
+      # Create external networks
       # --------------------------------------------------
       - name: Create Podman networks
         run: |
@@ -100,18 +107,22 @@ jobs:
       - name: Build & Run demo-1-basics
         working-directory: demo/demo-1-basics
         run: |
-          echo "Building and running demo-1-basics..."
+          echo "Running demo-1-basics..."
 
-          podman-compose -f docker-compose.yaml build --no-cache
+          podman-compose -f docker-compose.yaml build
           podman-compose -f docker-compose.yaml up -d
 
-          echo "Containers:"
           podman ps -a
-
           podman-compose -f docker-compose.yaml logs || true
 
-          echo "Cleaning up demo-1-basics..."
           podman-compose -f docker-compose.yaml down -v
+
+      # --------------------------------------------------
+      # 🔴 CRITICAL FIX #3: prune between demos
+      # --------------------------------------------------
+      - name: Cleanup after demo-1-basics
+        run: |
+          podman system prune -a -f
 
       # --------------------------------------------------
       # demo-2-otel
@@ -119,17 +130,14 @@ jobs:
       - name: Build & Run demo-2-otel
         working-directory: demo/demo-2-otel
         run: |
-          echo "Building and running demo-2-otel..."
+          echo "Running demo-2-otel..."
 
-          podman-compose -f docker-compose.yaml build --no-cache
+          podman-compose -f docker-compose.yaml build
           podman-compose -f docker-compose.yaml up -d
 
-          echo "Containers:"
           podman ps -a
-
           podman-compose -f docker-compose.yaml logs || true
 
-          echo "Cleaning up demo-2-otel..."
           podman-compose -f docker-compose.yaml down -v
 
       # --------------------------------------------------
@@ -138,5 +146,4 @@ jobs:
       - name: Final Cleanup
         if: always()
         run: |
-          echo "Final Podman system cleanup..."
           podman system prune -a -f
