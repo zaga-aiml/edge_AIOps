@@ -62,20 +62,28 @@ jobs:
           podman-compose --version
 
       # --------------------------------------------------
-      # 🔴 CRITICAL FIX #1: Podman storage + TMPDIR
+      # 🔴 FIXED: Podman storage + TMPDIR (ownership safe)
       # --------------------------------------------------
       - name: Configure Podman storage and temp dirs
         run: |
           STORAGE_ROOT="/home/runner/work/podman-storage"
           TMP_ROOT="/home/runner/work/podman-tmp"
 
-          sudo mkdir -p "$STORAGE_ROOT" "$TMP_ROOT" /etc/containers
+          # Create as runner (NOT sudo)
+          mkdir -p "$STORAGE_ROOT" "$TMP_ROOT"
+
+          # Podman config needs sudo
+          sudo mkdir -p /etc/containers
 
           echo "[storage]" | sudo tee /etc/containers/storage.conf
           echo "driver = \"overlay\"" | sudo tee -a /etc/containers/storage.conf
           echo "graphroot = \"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
           echo "runroot = \"$TMP_ROOT\"" | sudo tee -a /etc/containers/storage.conf
 
+          # Ensure ownership
+          sudo chown -R runner:runner "$STORAGE_ROOT" "$TMP_ROOT"
+
+          # Export runtime vars
           echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
           echo "XDG_RUNTIME_DIR=$TMP_ROOT" >> $GITHUB_ENV
 
@@ -118,7 +126,7 @@ jobs:
           podman-compose -f docker-compose.yaml down -v
 
       # --------------------------------------------------
-      # 🔴 CRITICAL FIX #3: prune between demos
+      # 🔴 Prune between demos
       # --------------------------------------------------
       - name: Cleanup after demo-1-basics
         run: |
