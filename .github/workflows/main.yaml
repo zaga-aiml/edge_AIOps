@@ -1,157 +1,147 @@
-name: Run Podman Compose for demo-1-basics and demo-2-otel
+name: Run Podman Compose demos
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/**'
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
   pull_request:
     paths:
-      - '.github/workflows/**'
       - 'demo/demo-1-basics/**'
       - 'demo/demo-2-otel/**'
-  workflow_dispatch:
 
 jobs:
   podman-compose:
     runs-on: ubuntu-latest
 
+    env:
+      TMPDIR: /tmp
+      XDG_RUNTIME_DIR: /tmp/podman-run
+
     steps:
       # --------------------------------------------------
-      # Checkout
+      # 1️⃣ Checkout
       # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # --------------------------------------------------
-      # Skip README-only changes
-      # --------------------------------------------------
-      - name: Check for README.md only changes
-        id: check_readme_only
-        run: |
-          git fetch origin main
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
-          echo "Changed files: $CHANGED_FILES"
-
-          for file in $CHANGED_FILES; do
-            if [[ "$file" != *README.md ]]; then
-              echo "run=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-
-          echo "run=false" >> $GITHUB_OUTPUT
-
-      - name: Abort if only README.md changed
-        if: steps.check_readme_only.outputs.run == 'false'
-        run: |
-          echo "Only README.md files changed; skipping job"
-          exit 0
-
-      # --------------------------------------------------
-      # Install Podman
+      # 2️⃣ Install Podman & podman-compose
       # --------------------------------------------------
       - name: Install Podman & podman-compose
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y podman python3-pip
+          sudo apt-get install -y podman python3-pip uidmap
+          pip install --upgrade pip
           pip install podman-compose
           podman --version
-          podman-compose --version
 
       # --------------------------------------------------
-      # 🔴 FIXED: Podman storage + TMPDIR (ownership safe)
+      # 3️⃣ Configure Podman runtime (CRITICAL FIX)
       # --------------------------------------------------
-      - name: Configure Podman storage and temp dirs
+      - name: Configure Podman runtime (cgroupfs)
         run: |
-          STORAGE_ROOT="/home/runner/work/podman-storage"
-          TMP_ROOT="/home/runner/work/podman-tmp"
+          mkdir -p ~/.config/containers
+          cat <<EOF > ~/.config/containers/containers.conf
+          [engine]
+          cgroup_manager = "cgroupfs"
+          runtime = "crun"
+          EOF
 
-          # Create as runner (NOT sudo)
-          mkdir -p "$STORAGE_ROOT" "$TMP_ROOT"
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 700 $XDG_RUNTIME_DIR
 
-          # Podman config needs sudo
-          sudo mkdir -p /etc/containers
-
-          echo "[storage]" | sudo tee /etc/containers/storage.conf
-          echo "driver = \"overlay\"" | sudo tee -a /etc/containers/storage.conf
-          echo "graphroot = \"$STORAGE_ROOT\"" | sudo tee -a /etc/containers/storage.conf
-          echo "runroot = \"$TMP_ROOT\"" | sudo tee -a /etc/containers/storage.conf
-
-          # Ensure ownership
-          sudo chown -R runner:runner "$STORAGE_ROOT" "$TMP_ROOT"
-
-          # Export runtime vars
-          echo "TMPDIR=$TMP_ROOT" >> $GITHUB_ENV
-          echo "XDG_RUNTIME_DIR=$TMP_ROOT" >> $GITHUB_ENV
-
-          podman system migrate || true
+          podman info | grep -i cgroup
 
       # --------------------------------------------------
-      # Cleanup before builds
+      # 4️⃣ Configure Podman storage (avoid disk full)
       # --------------------------------------------------
-      - name: Pre-build Cleanup
+      - name: Configure Podman storage
         run: |
-          podman ps -aq | xargs -r podman stop
-          podman ps -aq | xargs -r podman rm -f
-          podman images -aq | xargs -r podman rmi -f
-          podman volume prune -f
-          podman network prune -f
-          podman system prune -a -f
+          STORAGE_ROOT="/home/runner/work/_containers"
+          sudo mkdir -p "$STORAGE_ROOT" /etc/containers
+
+          cat <<EOF | sudo tee /etc/containers/storage.conf
+          [storage]
+          driver = "overlay"
+          graphroot = "$STORAGE_ROOT"
+          runroot = "/tmp/podman-runroot"
+          EOF
+
+          podman system migrate
 
       # --------------------------------------------------
-      # Create external networks
+      # 5️⃣ Pre-cleanup (important for CI stability)
       # --------------------------------------------------
-      - name: Create Podman networks
+      - name: Pre-build cleanup
         run: |
-          podman network exists anomaly-network || podman network create anomaly-network
-          podman network exists otel-network || podman network create otel-network
+          podman ps -aq | xargs -r podman stop || true
+          podman ps -aq | xargs -r podman rm -f || true
+          podman images -aq | xargs -r podman rmi -f || true
+          podman volume prune -f || true
+          podman network prune -f || true
+          podman system prune -a -f || true
 
       # --------------------------------------------------
-      # demo-1-basics
+      # 6️⃣ Create required Podman network
       # --------------------------------------------------
-      - name: Build & Run demo-1-basics
+      - name: Create Podman network
+        run: |
+          podman network exists anomaly-network || \
+          podman network create anomaly-network
+
+      # --------------------------------------------------
+      # 7️⃣ Build & Run demo-1-basics
+      # --------------------------------------------------
+      - name: Run demo-1-basics
         working-directory: demo/demo-1-basics
         run: |
           echo "Running demo-1-basics..."
-
-          podman-compose -f docker-compose.yaml build
-          podman-compose -f docker-compose.yaml up -d
+          podman-compose build
+          podman-compose up -d
 
           podman ps -a
-          podman-compose -f docker-compose.yaml logs || true
+          podman-compose logs || true
 
-          podman-compose -f docker-compose.yaml down -v
+          podman-compose down -v
 
       # --------------------------------------------------
-      # 🔴 Prune between demos
+      # 8️⃣ Cleanup between demos (VERY IMPORTANT)
       # --------------------------------------------------
-      - name: Cleanup after demo-1-basics
+      - name: Cleanup between demos
         run: |
           podman system prune -a -f
+          podman network prune -f || true
 
       # --------------------------------------------------
-      # demo-2-otel
+      # 9️⃣ Re-create network for next demo
       # --------------------------------------------------
-      - name: Build & Run demo-2-otel
+      - name: Re-create Podman network
+        run: |
+          podman network exists anomaly-network || \
+          podman network create anomaly-network
+
+      # --------------------------------------------------
+      # 🔟 Build & Run demo-2-otel
+      # --------------------------------------------------
+      - name: Run demo-2-otel
         working-directory: demo/demo-2-otel
         run: |
           echo "Running demo-2-otel..."
-
-          podman-compose -f docker-compose.yaml build
-          podman-compose -f docker-compose.yaml up -d
+          podman-compose build
+          podman-compose up -d
 
           podman ps -a
-          podman-compose -f docker-compose.yaml logs || true
+          podman-compose logs || true
 
-          podman-compose -f docker-compose.yaml down -v
+          podman-compose down -v
 
       # --------------------------------------------------
-      # Final cleanup
+      # 1️⃣1️⃣ Final cleanup
       # --------------------------------------------------
-      - name: Final Cleanup
+      - name: Final cleanup
         if: always()
         run: |
           podman system prune -a -f
+          podman network prune -f || true
