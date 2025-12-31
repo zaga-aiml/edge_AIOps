@@ -99,9 +99,9 @@ jobs:
         podman system prune -a -f || true
 
     # --------------------------------------------------
-    # 7️⃣ Create shared network
+    # 7️⃣ Create network for demo-1-basics
     # --------------------------------------------------
-    - name: Create Podman network
+    - name: Create anomaly-network
       run: |
         podman network exists anomaly-network || \
         podman network create anomaly-network
@@ -116,13 +116,21 @@ jobs:
         podman-compose build --no-cache
         podman-compose up -d
 
+    # --------------------------------------------------
+    # 9️⃣ Status & logs (demo-1-basics)
+    # --------------------------------------------------
+    - name: Status & logs - demo-1-basics
+      working-directory: demo/demo-1-basics
+      run: |
+        echo "📦 Containers:"
         podman ps -a
+        echo "📜 Logs:"
         podman-compose logs || true
 
         podman-compose down -v
 
     # --------------------------------------------------
-    # 9️⃣ Cleanup between demos (MANDATORY)
+    # 🔟 Cleanup between demos (MANDATORY)
     # --------------------------------------------------
     - name: Cleanup between demos
       run: |
@@ -131,15 +139,15 @@ jobs:
         podman network prune -f || true
 
     # --------------------------------------------------
-    # 🔟 Re-create network
+    # 1️⃣1️⃣ Create network for demo-2-otel
     # --------------------------------------------------
-    - name: Re-create Podman network
+    - name: Create edge-network
       run: |
-        podman network exists anomaly-network || \
-        podman network create anomaly-network
+        podman network exists edge-network || \
+        podman network create edge-network
 
     # --------------------------------------------------
-    # 1️⃣1️⃣ demo-2-otel
+    # 1️⃣2️⃣ demo-2-otel
     # --------------------------------------------------
     - name: Run demo-2-otel
       working-directory: demo/demo-2-otel
@@ -148,13 +156,21 @@ jobs:
         podman-compose build --no-cache
         podman-compose up -d
 
+    # --------------------------------------------------
+    # 1️⃣3️⃣ Status & logs (demo-2-otel)
+    # --------------------------------------------------
+    - name: Status & logs - demo-2-otel
+      working-directory: demo/demo-2-otel
+      run: |
+        echo "📦 Containers:"
         podman ps -a
+        echo "📜 Logs:"
         podman-compose logs || true
 
         podman-compose down -v
 
     # --------------------------------------------------
-    # 1️⃣2️⃣ Final cleanup
+    # 1️⃣4️⃣ Final cleanup
     # --------------------------------------------------
     - name: Final cleanup
       if: always()
