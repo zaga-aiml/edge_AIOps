@@ -1,60 +1,55 @@
+# ✅ Podman + GitHub Actions safe base image
 FROM python:3.11-slim-bookworm
 
-# -------------------------------
-# Working directory
-# -------------------------------
 WORKDIR /app
 
-# -------------------------------
-# System dependencies (single layer)
-# -------------------------------
+# -----------------------------
+# System deps (MINIMAL)
+# -----------------------------
 RUN apt-get update && apt-get install -y \
-        curl \
         gcc \
         python3-dev \
         build-essential \
-        wget \
     && rm -rf /var/lib/apt/lists/*
 
-# -------------------------------
-# Directories required for OpenShift / HuggingFace
-# (OpenShift runs with random UID)
-# -------------------------------
-RUN mkdir -p /app \
-             /tmp/huggingface \
-             /tmp/huggingface/transformers \
-    && chmod -R 777 /app /tmp/huggingface
+# -----------------------------
+# Runtime dirs (OpenShift-safe)
+# -----------------------------
+RUN mkdir -p /app /tmp/huggingface /tmp/pip-cache \
+    && chmod -R 777 /app /tmp/huggingface /tmp/pip-cache
 
-# -------------------------------
-# Environment hardening (CRITICAL)
-# -------------------------------
+# -----------------------------
+# Environment hard fixes
+# -----------------------------
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# HuggingFace caches
+# HuggingFace cache
 ENV HF_HOME=/tmp/huggingface
 ENV TRANSFORMERS_CACHE=/tmp/huggingface/transformers
 
-# 🚫 Disable pip cache (fixes overlayfs failures)
+# 🚫 Podman disk explosion fixes
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_CACHE_DIR=/tmp/pip-cache
+ENV PIP_PREFER_BINARY=1
 
-# 🚫 Prevent CUDA / NVIDIA probing
+# 🚫 HARD block GPU / CUDA wheels
 ENV CUDA_VISIBLE_DEVICES=""
 ENV TORCH_CUDA_ARCH_LIST=""
+ENV TRANSFORMERS_NO_TF=1
+ENV TRANSFORMERS_NO_FLAX=1
 
-# -------------------------------
-# Python dependencies
-# -------------------------------
+# -----------------------------
+# Python deps (single layer)
+# -----------------------------
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt \
+    && rm -rf /tmp/pip-cache
 
-# -------------------------------
-# Application source
-# -------------------------------
+# -----------------------------
+# App source
+# -----------------------------
 COPY . .
 
-# -------------------------------
-# Run FastAPI
-# -------------------------------
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
