@@ -13,6 +13,8 @@ RUN apt-get update && \
         wget \
     && rm -rf /var/lib/apt/lists/*
 
+    
+
 # Copy requirement files and install dependencies
 COPY requirements.txt .
 RUN pip install -r requirements.txt
