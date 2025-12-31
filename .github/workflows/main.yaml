@@ -159,15 +159,26 @@ jobs:
     # --------------------------------------------------
     # 1️⃣3️⃣ Status & logs (demo-2-otel)
     # --------------------------------------------------
-    - name: Status & logs - demo-2-otel
-      working-directory: demo/demo-2-otel
-      run: |
-        echo "📦 Containers:"
-        podman ps -a
-        echo "📜 Logs:"
-        podman-compose logs || true
+    # - name: Status & logs - demo-2-otel
+    #   working-directory: demo/demo-2-otel
+    #   run: |
+    #     echo "📦 Containers:"
+    #     podman ps -a
+    #     echo "📜 Logs:"
+    #     podman-compose logs || true
 
-        podman-compose down -v
+    #     podman-compose down -v
+
+    - name: Show Container Logs
+      working-directory: demo/demo-2-0tel
+      run: |
+          echo "Displaying logs for all containers..."
+          podman ps --format "{{.Names}}" | while read -r c; do
+            echo "----------------------------"
+            echo "Logs for: $c"
+            echo "----------------------------"
+            podman logs "$c" || echo "No logs for $c"
+          done
 
     # --------------------------------------------------
     # 1️⃣4️⃣ Final cleanup
