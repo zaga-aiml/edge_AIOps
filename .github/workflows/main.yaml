@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # ✅ MUST be user-owned paths
       XDG_RUNTIME_DIR: ${{ github.workspace }}/podman-runtime
       TMPDIR: ${{ github.workspace }}/podman-tmp
       PODMAN_STORAGE: ${{ github.workspace }}/podman-storage
@@ -28,34 +27,28 @@ jobs:
     # --------------------------------------------------
     # 1️⃣ Checkout
     # --------------------------------------------------
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
     # --------------------------------------------------
-    # 2️⃣ Free disk space (CRITICAL)
+    # 2️⃣ Free disk space
     # --------------------------------------------------
     - name: Free disk space
       run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo docker image prune -a -f || true
         df -h
 
     # --------------------------------------------------
-    # 3️⃣ Install Podman & podman-compose
+    # 3️⃣ Install Podman
     # --------------------------------------------------
     - name: Install Podman & podman-compose
       run: |
         sudo apt-get update -y
         sudo apt-get install -y podman uidmap python3-pip
-        pip install --upgrade pip
         pip install podman-compose
-        podman --version
-        podman-compose --version
 
     # --------------------------------------------------
-    # 4️⃣ Configure Podman runtime (NO systemd)
+    # 4️⃣ Silence Podman warnings
     # --------------------------------------------------
     - name: Configure Podman runtime
       run: |
@@ -65,10 +58,12 @@ jobs:
         cgroup_manager = "cgroupfs"
         runtime = "crun"
         events_logger = "file"
+        systemd = false
+        log_level = "error"
         EOF
 
     # --------------------------------------------------
-    # 5️⃣ Configure Podman storage + runtime dirs
+    # 5️⃣ Storage
     # --------------------------------------------------
     - name: Configure Podman storage
       run: |
@@ -76,7 +71,6 @@ jobs:
         chmod 700 "$XDG_RUNTIME_DIR"
         chmod 777 "$TMPDIR" "$PODMAN_STORAGE"
 
-        mkdir -p ~/.config/containers
         cat <<EOF > ~/.config/containers/storage.conf
         [storage]
         driver = "overlay"
@@ -85,107 +79,50 @@ jobs:
         EOF
 
         podman system migrate
-        podman info
 
     # --------------------------------------------------
-    # 6️⃣ Hard cleanup before builds
+    # 6️⃣ Hard cleanup
     # --------------------------------------------------
-    - name: Pre-build cleanup
-      run: |
-        podman ps -aq | xargs -r podman rm -f || true
-        podman images -aq | xargs -r podman rmi -f || true
-        podman volume prune -f || true
-        podman network prune -f || true
-        podman system prune -a -f || true
+    - name: Cleanup
+      run: podman system prune -a -f
 
-    # --------------------------------------------------
-    # 7️⃣ Create network for demo-1-basics
-    # --------------------------------------------------
+    # ==================================================
+    # 🔹 DEMO 1 — BASICS
+    # ==================================================
     - name: Create anomaly-network
-      run: |
-        podman network exists anomaly-network || \
-        podman network create anomaly-network
+      run: podman network create anomaly-network || true
 
-    # --------------------------------------------------
-    # 8️⃣ demo-1-basics
-    # --------------------------------------------------
     - name: Run demo-1-basics
       working-directory: demo/demo-1-basics
       run: |
-        echo "Running demo-1-basics..."
-        podman-compose build --no-cache
-        podman-compose up -d
+        podman-compose build --no-cache 2>/dev/null
+        podman-compose up -d 2>/dev/null
 
-    # --------------------------------------------------
-    # 9️⃣ Status & logs (demo-1-basics)
-    # --------------------------------------------------
-    - name: Status & logs - demo-1-basics
-      working-directory: demo/demo-1-basics
-      run: |
-        echo "📦 Containers:"
-        podman ps -a
-        echo "📜 Logs:"
-        podman-compose logs || true
+        echo "✅ demo-1-basics running containers:"
+        podman ps --format "table {{.Names}}\t{{.Status}}"
 
-        podman-compose down -v
+        podman-compose down -v 2>/dev/null
 
-    # --------------------------------------------------
-    # 🔟 Cleanup between demos (MANDATORY)
-    # --------------------------------------------------
-    - name: Cleanup between demos
-      run: |
-        podman system prune -a -f
-        podman volume prune -f || true
-        podman network prune -f || true
+    - run: podman system prune -a -f
 
-    # --------------------------------------------------
-    # 1️⃣1️⃣ Create network for demo-2-otel
-    # --------------------------------------------------
+    # ==================================================
+    # 🔹 DEMO 2 — OTEL
+    # ==================================================
     - name: Create edge-network
-      run: |
-        podman network exists edge-network || \
-        podman network create edge-network
+      run: podman network create edge-network || true
 
-    # --------------------------------------------------
-    # 1️⃣2️⃣ demo-2-otel
-    # --------------------------------------------------
     - name: Run demo-2-otel
       working-directory: demo/demo-2-otel
       run: |
-        echo "Running demo-2-otel..."
-        podman-compose build --no-cache
-        podman-compose up -d
+        podman-compose build --no-cache 2>/dev/null
+        podman-compose up -d 2>/dev/null
+
+        echo "✅ demo-2-otel running containers:"
+        podman ps --format "table {{.Names}}\t{{.Status}}"
 
     # --------------------------------------------------
-    # 1️⃣3️⃣ Status & logs (demo-2-otel)
-    # --------------------------------------------------
-    # - name: Status & logs - demo-2-otel
-    #   working-directory: demo/demo-2-otel
-    #   run: |
-    #     echo "📦 Containers:"
-    #     podman ps -a
-    #     echo "📜 Logs:"
-    #     podman-compose logs || true
-
-    #     podman-compose down -v
-
-    - name: Show Container Logs
-      working-directory: demo/demo-2-0tel
-      run: |
-          echo "Displaying logs for all containers..."
-          podman ps --format "{{.Names}}" | while read -r c; do
-            echo "----------------------------"
-            echo "Logs for: $c"
-            echo "----------------------------"
-            podman logs "$c" || echo "No logs for $c"
-          done
-
-    # --------------------------------------------------
-    # 1️⃣4️⃣ Final cleanup
+    # 7️⃣ Final cleanup
     # --------------------------------------------------
     - name: Final cleanup
       if: always()
-      run: |
-        podman system prune -a -f
-        podman network prune -f || true
-        df -h
+      run: podman system prune -a -f
