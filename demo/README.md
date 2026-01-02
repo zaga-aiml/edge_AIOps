@@ -3,6 +3,11 @@
 
 A multi-stage pipeline for detecting anomalies in CPU and memory usage of edge devices or Kubernetes clusters and generating intelligent remedy content using AI/ML and LLMs.
 
+
+<!-- 
+# AIOPS Demo - Anomaly Detection & Remedy Generation using LLM
+
+A multi-stage pipeline for detecting anomalies in CPU and memory usage of edge devices or Kubernetes clusters and generating intelligent remedy content using AI/ML and LLMs. -->
 # Overview:
 
 This Demo provides an end-to-end pipeline that simulates resource usage, detects anomalies, and generates actionable remedies:
