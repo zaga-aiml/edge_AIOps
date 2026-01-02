@@ -4,10 +4,6 @@ The aim of this AIOps project under the LFEdge umbrella is to help deliver AI su
 
 There are three workstreams on the highest level:
 
-## Research
-The motto inside this folder is "Anything AIOps Goes". Here's the home for your wildest ideas to try out, code, test and report back on. Ideally everything built on open source technology or at least free to use and openly available software or models. Examples are  evaluating different algorithms or models for anomaly detection, trying different agentic architectures like agents for logs, metrics, traces VS agents for each system component or layer of the technology stack.
-
-
 
 ## Research
 The motto inside this folder is "Anything AIOps Goes". Here's the home for your wildest ideas to try out, code, test and report back on. Ideally everything built on open source technology or at least free to use and openly available software or models. Examples are  evaluating different algorithms or models for anomaly detection, trying different agentic architectures like agents for logs, metrics, traces VS agents for each system component or layer of the technology stack.

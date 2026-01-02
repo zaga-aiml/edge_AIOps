@@ -18,7 +18,7 @@ attributes: inserts host attribute if not already present.
 
 batch: batches metrics before exporting.
 
-batch: batches metrics .
+
 
 ### Exporters:
 
