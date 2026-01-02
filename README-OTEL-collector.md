@@ -18,6 +18,8 @@ attributes: inserts host attribute if not already present.
 
 batch: batches metrics before exporting.
 
+batch: batches metrics .
+
 ### Exporters:
 
 prometheus: exposes metrics on 0.0.0.0:9464 for scraping by Prometheus.
