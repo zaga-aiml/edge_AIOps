@@ -1,4 +1,5 @@
 # Getting Started  — How to run the OTEL + Storage Stack on your local laptop/desktop
+# Getting Started  — How to run the OTEL + Storage Stack on your local laptop/desktop
 
 Observability + Lakehouse Storage Stack
 
